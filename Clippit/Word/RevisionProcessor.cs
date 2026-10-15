@@ -384,7 +384,11 @@ namespace Clippit.Word
             var parent = element
                 .Ancestors()
                 .FirstOrDefault(a =>
-                    a.Name != W.sdtContent && a.Name != W.sdt && a.Name != W.smartTag && a.Name != W.hyperlink
+                    a.Name != W.sdtContent
+                    && a.Name != W.sdt
+                    && a.Name != W.smartTag
+                    && a.Name != W.hyperlink
+                    && a.Name != W.fldSimple
                 );
 
             ////////////////////////////////////////////////////////////////////////////////////

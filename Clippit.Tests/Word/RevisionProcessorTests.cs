@@ -139,6 +139,38 @@ public class RevisionProcessorTests : TestsBase
         await Assert.That(TextOf(hyperlink)).IsEqualTo(expectedText);
     }
 
+    [Test]
+    [Arguments(false, "Alpha delta gamma")]
+    [Arguments(true, "Alpha beta gamma")]
+    public async Task RP054_RevisionsInsideSimpleField(bool reject, string expectedText)
+    {
+        var source = CreateDocument(
+            """
+            <w:p>
+              <w:fldSimple w:instr=" AUTHOR ">
+                <w:r><w:t xml:space="preserve">Alpha </w:t></w:r>
+                <w:del w:id="1" w:author="Author" w:date="2026-10-15T00:00:00Z">
+                  <w:r><w:delText>beta</w:delText></w:r>
+                </w:del>
+                <w:ins w:id="2" w:author="Author" w:date="2026-10-15T00:00:00Z">
+                  <w:r><w:t>delta</w:t></w:r>
+                </w:ins>
+                <w:r><w:t xml:space="preserve"> gamma</w:t></w:r>
+              </w:fldSimple>
+            </w:p>
+            """
+        );
+
+        var processed = reject ? RevisionProcessor.RejectRevisions(source) : RevisionProcessor.AcceptRevisions(source);
+
+        using var streamDoc = new OpenXmlMemoryStreamDocument(processed);
+        using var doc = streamDoc.GetWordprocessingDocument();
+        await Validate(doc);
+        await Assert.That(RevisionProcessor.HasTrackedRevisions(doc)).IsFalse();
+        var field = doc.MainDocumentPart!.GetXDocument().Descendants(W.fldSimple).Single();
+        await Assert.That(TextOf(field)).IsEqualTo(expectedText);
+    }
+
     private static WmlDocument CreateDocument(string bodyXml)
     {
         using var stream = new MemoryStream();
