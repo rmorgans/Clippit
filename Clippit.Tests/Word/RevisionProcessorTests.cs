@@ -260,6 +260,98 @@ public class RevisionProcessorTests : TestsBase
         await Assert.That(string.Join("|", paragraphs)).IsEqualTo(expectedParagraphs);
     }
 
+    [Test]
+    [Arguments("header", false, "Alpha delta gamma")]
+    [Arguments("header", true, "Alpha beta| gamma")]
+    [Arguments("footer", false, "Alpha delta gamma")]
+    [Arguments("footer", true, "Alpha beta| gamma")]
+    [Arguments("footnote", false, "Alpha delta gamma")]
+    [Arguments("footnote", true, "Alpha beta| gamma")]
+    [Arguments("endnote", false, "Alpha delta gamma")]
+    [Arguments("endnote", true, "Alpha beta| gamma")]
+    [Arguments("comment", false, "Alpha delta gamma")]
+    [Arguments("comment", true, "Alpha beta| gamma")]
+    public async Task RP057_RevisionsInEveryStory(string story, bool reject, string expectedParagraphs)
+    {
+        const string storyId = "rIdStory";
+        const string revisedParagraphs = """
+            <w:p>
+              <w:pPr><w:rPr><w:del w:id="11" w:author="Author" w:date="2026-10-15T00:00:00Z"/></w:rPr></w:pPr>
+              <w:r><w:t xml:space="preserve">Alpha </w:t></w:r>
+              <w:del w:id="12" w:author="Author" w:date="2026-10-15T00:00:00Z">
+                <w:r><w:delText>beta</w:delText></w:r>
+              </w:del>
+              <w:ins w:id="13" w:author="Author" w:date="2026-10-15T00:00:00Z">
+                <w:r><w:t>delta</w:t></w:r>
+              </w:ins>
+            </w:p>
+            <w:p><w:r><w:t xml:space="preserve"> gamma</w:t></w:r></w:p>
+            """;
+        var (bodyXml, storyXml) = story switch
+        {
+            "header" => (
+                $"""<w:p/><w:sectPr><w:headerReference w:type="default" r:id="{storyId}"/></w:sectPr>""",
+                $"<w:hdr {s_namespaces}>{revisedParagraphs}</w:hdr>"
+            ),
+            "footer" => (
+                $"""<w:p/><w:sectPr><w:footerReference w:type="default" r:id="{storyId}"/></w:sectPr>""",
+                $"<w:ftr {s_namespaces}>{revisedParagraphs}</w:ftr>"
+            ),
+            "footnote" => (
+                """<w:p><w:r><w:footnoteReference w:id="1"/></w:r></w:p>""",
+                $"""<w:footnotes {s_namespaces}><w:footnote w:id="1">{revisedParagraphs}</w:footnote></w:footnotes>"""
+            ),
+            "endnote" => (
+                """<w:p><w:r><w:endnoteReference w:id="1"/></w:r></w:p>""",
+                $"""<w:endnotes {s_namespaces}><w:endnote w:id="1">{revisedParagraphs}</w:endnote></w:endnotes>"""
+            ),
+            "comment" => (
+                """
+                <w:p>
+                  <w:commentRangeStart w:id="0"/>
+                  <w:r><w:t>Commented</w:t></w:r>
+                  <w:commentRangeEnd w:id="0"/>
+                  <w:r><w:commentReference w:id="0"/></w:r>
+                </w:p>
+                """,
+                $"""
+                <w:comments {s_namespaces}>
+                  <w:comment w:id="0" w:author="Author" w:date="2026-10-15T00:00:00Z" w:initials="A">
+                    {revisedParagraphs}
+                  </w:comment>
+                </w:comments>
+                """
+            ),
+            _ => throw new ArgumentOutOfRangeException(nameof(story)),
+        };
+        var source = CreateDocument(
+            bodyXml,
+            mainPart =>
+            {
+                OpenXmlPart storyPart = story switch
+                {
+                    "header" => mainPart.AddNewPart<HeaderPart>(storyId),
+                    "footer" => mainPart.AddNewPart<FooterPart>(storyId),
+                    "footnote" => mainPart.AddNewPart<FootnotesPart>(storyId),
+                    "endnote" => mainPart.AddNewPart<EndnotesPart>(storyId),
+                    _ => mainPart.AddNewPart<WordprocessingCommentsPart>(storyId),
+                };
+                storyPart.PutXDocument(XDocument.Parse(storyXml));
+            }
+        );
+
+        var processed = reject ? RevisionProcessor.RejectRevisions(source) : RevisionProcessor.AcceptRevisions(source);
+
+        using var streamDoc = new OpenXmlMemoryStreamDocument(processed);
+        using var doc = streamDoc.GetWordprocessingDocument();
+        await Validate(doc);
+        var processedStory = doc.MainDocumentPart!.GetPartById(storyId);
+        var paragraphs = processedStory.GetXDocument().Descendants(W.p).Select(TextOf);
+        await Assert.That(string.Join("|", paragraphs)).IsEqualTo(expectedParagraphs);
+        await Assert.That(RevisionProcessor.PartHasTrackedRevisions(processedStory)).IsFalse();
+        await Assert.That(RevisionProcessor.HasTrackedRevisions(doc)).IsFalse();
+    }
+
     // With sectionChanged the section break also carries a w:sectPrChange (see RP055).
     [Test]
     [Arguments(false, false, "center", "rIdHeader1 rIdFooter1 pgSz pgMar@1440 | rIdHeader2 rIdFooter2 pgSz pgMar@1440")]
