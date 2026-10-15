@@ -441,6 +441,71 @@ public class RevisionProcessorTests : TestsBase
         await Assert.That(string.Join(" | ", sections)).IsEqualTo(expectedSections);
     }
 
+    [Test]
+    [Arguments("dir", false, "Alpha delta gamma")]
+    [Arguments("dir", true, "Alpha beta gamma")]
+    [Arguments("bdo", false, "Alpha delta gamma")]
+    [Arguments("bdo", true, "Alpha beta gamma")]
+    public async Task RP059_RevisionsInsideBidirectionalContainer(string container, bool reject, string expectedText)
+    {
+        var source = CreateDocument(
+            $"""
+            <w:p>
+              <w:{container} w:val="rtl">
+                <w:r><w:t xml:space="preserve">Alpha </w:t></w:r>
+                <w:del w:id="1" w:author="Author" w:date="2026-10-15T00:00:00Z">
+                  <w:r><w:delText>beta</w:delText></w:r>
+                </w:del>
+                <w:ins w:id="2" w:author="Author" w:date="2026-10-15T00:00:00Z">
+                  <w:r><w:t>delta</w:t></w:r>
+                </w:ins>
+                <w:r><w:t xml:space="preserve"> gamma</w:t></w:r>
+              </w:{container}>
+            </w:p>
+            """
+        );
+
+        var processed = reject ? RevisionProcessor.RejectRevisions(source) : RevisionProcessor.AcceptRevisions(source);
+
+        using var streamDoc = new OpenXmlMemoryStreamDocument(processed);
+        using var doc = streamDoc.GetWordprocessingDocument();
+        await Validate(doc, BidirectionalContainerErrors(container));
+        await Assert.That(RevisionProcessor.HasTrackedRevisions(doc)).IsFalse();
+        var wrapper = doc.MainDocumentPart!.GetXDocument().Descendants(W.w + container).Single();
+        await Assert.That(TextOf(wrapper)).IsEqualTo(expectedText);
+    }
+
+    [Test]
+    [Arguments("dir", false, "AlphaNext")]
+    [Arguments("dir", true, "Alpha|Next")]
+    [Arguments("bdo", false, "AlphaNext")]
+    [Arguments("bdo", true, "Alpha|Next")]
+    public async Task RP060_DeletedParagraphMarkAfterBidirectionalContainer(
+        string container,
+        bool reject,
+        string expectedParagraphs
+    )
+    {
+        var source = CreateDocument(
+            $"""
+            <w:p>
+              <w:pPr><w:rPr><w:del w:id="1" w:author="Author" w:date="2026-10-15T00:00:00Z"/></w:rPr></w:pPr>
+              <w:{container} w:val="rtl"><w:r><w:t>Alpha</w:t></w:r></w:{container}>
+            </w:p>
+            <w:p><w:r><w:t>Next</w:t></w:r></w:p>
+            """
+        );
+
+        var processed = reject ? RevisionProcessor.RejectRevisions(source) : RevisionProcessor.AcceptRevisions(source);
+
+        using var streamDoc = new OpenXmlMemoryStreamDocument(processed);
+        using var doc = streamDoc.GetWordprocessingDocument();
+        await Validate(doc, BidirectionalContainerErrors(container));
+        await Assert.That(RevisionProcessor.HasTrackedRevisions(doc)).IsFalse();
+        var paragraphs = doc.MainDocumentPart!.GetXDocument().Descendants(W.p).Select(TextOf);
+        await Assert.That(string.Join("|", paragraphs)).IsEqualTo(expectedParagraphs);
+    }
+
     private static string TrackedSectionProperties(int n) =>
         $"""
             <w:sectPr>
@@ -468,6 +533,11 @@ public class RevisionProcessorTests : TestsBase
                         : (string?)e.Attribute(R.id) ?? e.Name.LocalName
                 )
         );
+
+    // The Open XML SDK's validator does not know w:dir and w:bdo (ISO/IEC 29500 run containers that Word reads and
+    // writes), so it reports them as unexpected children of w:p.
+    private static List<string> BidirectionalContainerErrors(string container) =>
+        [$"unexpected child element '{W.w.NamespaceName}:{container}'"];
 
     private static readonly string s_namespaces = $"xmlns:w=\"{W.w.NamespaceName}\" xmlns:r=\"{R.r.NamespaceName}\"";
 

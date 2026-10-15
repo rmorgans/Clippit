@@ -412,6 +412,8 @@ namespace Clippit.Word
                     && a.Name != W.smartTag
                     && a.Name != W.hyperlink
                     && a.Name != W.fldSimple
+                    && a.Name != W.dir
+                    && a.Name != W.bdo
                 );
 
             ////////////////////////////////////////////////////////////////////////////////////
@@ -1671,7 +1673,7 @@ namespace Clippit.Word
                 return node;
             if (
                 element.Name == W.dir
-                || element.Name == W.bdr
+                || element.Name == W.bdo
                 || element.Name == W.ins
                 || element.Name == W.moveTo
                 || element.Name == W.smartTag
